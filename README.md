@@ -6,7 +6,7 @@ Este add-in muestra una tabla con:
 - Numero de viajes
 - Km total
 - Numero de activaciones
-- Despliegue de detalle de viajes (inicio, fin, km y activaciones) al hacer clic en la unidad
+- Despliegue de detalle de viajes agrupados por dia (inicio, fin, km y activaciones) al hacer clic en la unidad
 
 Filtros incluidos:
 - Fecha inicio/fin
@@ -35,3 +35,4 @@ Cuenta una activacion cuando el valor de `StatusData` pasa de apagado a encendid
 1. Publica los archivos en un hosting accesible por MyGeotab.
 2. Registra el add-in en Marketplace/SDK de Geotab usando el `manifest.json`.
 3. Abre el add-in en Geotab y aplica filtros.
+

@@ -123,6 +123,56 @@
     return date.toLocaleString("es-ES");
   }
 
+  function toLocalDayKey(value) {
+    var date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, "0");
+    var d = String(date.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+
+  function buildDailyTripSummary(trips) {
+    var map = {};
+
+    (trips || []).forEach(function (trip) {
+      var baseDate = trip.start || trip.stop;
+      var dayKey = toLocalDayKey(baseDate);
+      if (!dayKey) {
+        return;
+      }
+      if (!map[dayKey]) {
+        map[dayKey] = {
+          dayKey: dayKey,
+          start: trip.start || trip.stop || null,
+          stop: trip.stop || trip.start || null,
+          distanceKm: 0,
+          activationCount: 0
+        };
+      }
+
+      if (trip.start && (!map[dayKey].start || new Date(trip.start) < new Date(map[dayKey].start))) {
+        map[dayKey].start = trip.start;
+      }
+      if (trip.stop && (!map[dayKey].stop || new Date(trip.stop) > new Date(map[dayKey].stop))) {
+        map[dayKey].stop = trip.stop;
+      }
+
+      map[dayKey].distanceKm += Number(trip.distanceKm || 0);
+      map[dayKey].activationCount += Number(trip.activationCount || 0);
+    });
+
+    return Object.keys(map)
+      .map(function (key) {
+        return map[key];
+      })
+      .sort(function (a, b) {
+        return new Date(b.dayKey) - new Date(a.dayKey);
+      });
+  }
+
   function createTripDetailsRow(row) {
     var detailTr = document.createElement("tr");
     detailTr.className = "detail-row";
@@ -136,13 +186,14 @@
     }
 
     var lines = [];
+    var dailyRows = buildDailyTripSummary(row.trips);
     lines.push("<div class=\"detail-wrap\">");
-    lines.push("<div class=\"detail-title\">Viajes de " + escapeHtml(row.deviceName) + " (" + row.trips.length + ")</div>");
+    lines.push("<div class=\"detail-title\">Viajes por dia de " + escapeHtml(row.deviceName) + " (" + dailyRows.length + " dia(s))</div>");
     lines.push("<table class=\"detail-table\">");
     lines.push("<thead><tr><th>Inicio</th><th>Fin</th><th>Km</th><th>Activaciones</th></tr></thead>");
     lines.push("<tbody>");
 
-    row.trips.forEach(function (trip) {
+    dailyRows.forEach(function (trip) {
       lines.push(
         "<tr>" +
           "<td>" + escapeHtml(formatDateTime(trip.start)) + "</td>" +
