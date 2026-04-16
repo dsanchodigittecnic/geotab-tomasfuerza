@@ -103,6 +103,18 @@
     });
   }
 
+  function ensureStylesheet() {
+    var styleId = "toma-fuerza-stylesheet";
+    if (document.getElementById(styleId)) {
+      return;
+    }
+    var link = document.createElement("link");
+    link.id = styleId;
+    link.rel = "stylesheet";
+    link.href = "styles.css";
+    document.head.appendChild(link);
+  }
+
   function toNumberValue(value) {
     if (typeof value === "number") {
       return value;
@@ -327,55 +339,95 @@
     });
   }
 
-  async function countActivationsByMeasurement(deviceId, measurementDefs, fromDate, toDate) {
-    var matches = [];
+  function countActivationsInRows(rows, expectedOnValue) {
+    var ordered = (rows || []).slice().sort(function (a, b) {
+      return new Date(a.dateTime) - new Date(b.dateTime);
+    });
+    var prev = false;
+    var count = 0;
+    ordered.forEach(function (row) {
+      var current = isOnValue(row.data, expectedOnValue);
+      if (current && !prev) {
+        count += 1;
+      }
+      prev = current;
+    });
+    return count;
+  }
+
+  async function buildActivationIndex(deviceIds, measurementDefs, fromDate, toDate) {
+    var allowed = {};
+    var activationIndex = {};
+
+    (deviceIds || []).forEach(function (id) {
+      allowed[id] = true;
+      activationIndex[id] = {
+        total: 0,
+        measurementLabel: "-",
+        byKey: {}
+      };
+    });
 
     for (var i = 0; i < measurementDefs.length; i += 1) {
       var measurement = measurementDefs[i];
       var diagnostics = dedupeDiagnostics(measurement.diagnostics);
-      var count = 0;
+      var measurementCountByDevice = {};
 
       for (var j = 0; j < diagnostics.length; j += 1) {
         var diagnostic = diagnostics[j];
         var statusData = await callApi("Get", {
           typeName: "StatusData",
           search: {
-            deviceSearch: { id: deviceId },
             diagnosticSearch: { id: getId(diagnostic.id) },
             fromDate: fromDate.toISOString(),
             toDate: toDate.toISOString()
           }
         });
 
-        var ordered = (statusData || []).slice().sort(function (a, b) {
-          return new Date(a.dateTime) - new Date(b.dateTime);
+        var rowsByDevice = {};
+        (statusData || []).forEach(function (row) {
+          var rowDeviceId = getId(row.device);
+          if (!rowDeviceId || !allowed[rowDeviceId]) {
+            return;
+          }
+          if (!rowsByDevice[rowDeviceId]) {
+            rowsByDevice[rowDeviceId] = [];
+          }
+          rowsByDevice[rowDeviceId].push(row);
         });
 
-        var prev = false;
-        ordered.forEach(function (row) {
-          var current = isOnValue(row.data, measurement.onValue);
-          if (current && !prev) {
-            count += 1;
-          }
-          prev = current;
+        Object.keys(rowsByDevice).forEach(function (deviceId) {
+          var count = countActivationsInRows(rowsByDevice[deviceId], measurement.onValue);
+          measurementCountByDevice[deviceId] = (measurementCountByDevice[deviceId] || 0) + count;
         });
       }
 
-      matches.push({
-        key: measurement.key,
-        label: measurement.label,
-        count: count
+      Object.keys(allowed).forEach(function (deviceId) {
+        var count = measurementCountByDevice[deviceId] || 0;
+        activationIndex[deviceId].byKey[measurement.key] = {
+          label: measurement.label,
+          count: count
+        };
       });
     }
 
-    var total = matches.reduce(function (sum, m) {
-      return sum + m.count;
-    }, 0);
+    Object.keys(allowed).forEach(function (deviceId) {
+      var byKey = activationIndex[deviceId].byKey;
+      var matches = Object.keys(byKey).map(function (key) {
+        return {
+          key: key,
+          label: byKey[key].label,
+          count: byKey[key].count
+        };
+      });
+      var total = matches.reduce(function (sum, m) {
+        return sum + m.count;
+      }, 0);
+      activationIndex[deviceId].total = total;
+      activationIndex[deviceId].measurementLabel = formatMeasurementLabel(matches);
+    });
 
-    return {
-      total: total,
-      measurementLabel: formatMeasurementLabel(matches)
-    };
+    return activationIndex;
   }
 
   async function loadReport() {
@@ -432,6 +484,11 @@
       }).filter(function (row) {
         return passesSourceFilter(row.type, sourceFilter);
       });
+      var candidateDeviceIds = candidateDevices.map(function (row) {
+        return getId(row.device.id);
+      }).filter(function (id) {
+        return !!id;
+      });
 
       setStatus("Cargando mediciones de activación...");
       var measurementDefs = await getMeasurementDiagnostics();
@@ -442,13 +499,17 @@
         throw new Error("No se encontraron diagnósticos para 'Toma de fuerza activada' ni 'Auxiliar 1'.");
       }
 
+      setStatus("Agrupando activaciones por unidad...");
+      var activationIndex = await buildActivationIndex(candidateDeviceIds, measurementDefs, range.fromDate, range.toDate);
+
       setStatus("Calculando viajes, km y activaciones...");
-      var rows = await mapLimit(candidateDevices, 4, async function (row) {
+      var rows = await mapLimit(candidateDevices, 2, async function (row) {
         var device = row.device;
         var dType = row.type;
+        var deviceId = getId(device.id);
 
-        var tripSummary = await getTripsForDevice(getId(device.id), range.fromDate, range.toDate);
-        var activationResult = await countActivationsByMeasurement(getId(device.id), measurementDefs, range.fromDate, range.toDate);
+        var tripSummary = await getTripsForDevice(deviceId, range.fromDate, range.toDate);
+        var activationResult = activationIndex[deviceId] || { total: 0, measurementLabel: "-" };
 
         return {
           deviceName: device.name || "(sin nombre)",
@@ -489,6 +550,7 @@
 
   function initUi(api) {
     apiRef = api;
+    ensureStylesheet();
 
     els.startDate = document.getElementById("startDate");
     els.endDate = document.getElementById("endDate");

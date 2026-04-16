@@ -15,6 +15,7 @@ Filtros incluidos:
 ## Archivos
 - `manifest.json`
 - `index.html`
+- `styles.css`
 - `app.js`
 
 ## Configuracion importante
