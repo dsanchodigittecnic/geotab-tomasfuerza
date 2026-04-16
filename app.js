@@ -134,7 +134,7 @@
     return y + "-" + m + "-" + d;
   }
 
-  function buildDailyTripSummary(trips) {
+  function buildDailyTripSummary(trips, unmatchedActivationTimes) {
     var map = {};
 
     (trips || []).forEach(function (trip) {
@@ -164,6 +164,29 @@
       map[dayKey].activationCount += Number(trip.activationCount || 0);
     });
 
+    (unmatchedActivationTimes || []).forEach(function (timeValue) {
+      var dayKey = toLocalDayKey(timeValue);
+      if (!dayKey) {
+        return;
+      }
+      if (!map[dayKey]) {
+        map[dayKey] = {
+          dayKey: dayKey,
+          start: timeValue,
+          stop: timeValue,
+          distanceKm: 0,
+          activationCount: 0
+        };
+      }
+      map[dayKey].activationCount += 1;
+      if (!map[dayKey].start || new Date(timeValue) < new Date(map[dayKey].start)) {
+        map[dayKey].start = timeValue;
+      }
+      if (!map[dayKey].stop || new Date(timeValue) > new Date(map[dayKey].stop)) {
+        map[dayKey].stop = timeValue;
+      }
+    });
+
     return Object.keys(map)
       .map(function (key) {
         return map[key];
@@ -179,14 +202,17 @@
     var detailTd = document.createElement("td");
     detailTd.colSpan = 6;
 
-    if (!row.trips || !row.trips.length) {
+    var hasTrips = row.trips && row.trips.length;
+    var hasUnmatched = row.unmatchedActivationTimes && row.unmatchedActivationTimes.length;
+
+    if (!hasTrips && !hasUnmatched) {
       detailTd.innerHTML = "<div class=\"detail-empty\">Sin viajes en el rango seleccionado.</div>";
       detailTr.appendChild(detailTd);
       return detailTr;
     }
 
     var lines = [];
-    var dailyRows = buildDailyTripSummary(row.trips);
+    var dailyRows = buildDailyTripSummary(row.trips, row.unmatchedActivationTimes);
     lines.push("<div class=\"detail-wrap\">");
     lines.push("<div class=\"detail-title\">Viajes por dia de " + escapeHtml(row.deviceName) + " (" + dailyRows.length + " dia(s))</div>");
     lines.push("<table class=\"detail-table\">");
@@ -208,6 +234,50 @@
     detailTd.innerHTML = lines.join("");
     detailTr.appendChild(detailTd);
     return detailTr;
+  }
+
+  function assignActivationsToTrips(trips, activationTimes) {
+    var normalizedTimes = (activationTimes || []).map(function (time, idx) {
+      return {
+        index: idx,
+        value: time,
+        ms: new Date(time).getTime()
+      };
+    }).filter(function (t) {
+      return !Number.isNaN(t.ms);
+    });
+
+    var matchedByIndex = {};
+    var tripsWithActivations = (trips || []).map(function (trip) {
+      var startMs = new Date(trip.start).getTime();
+      var stopMs = new Date(trip.stop).getTime();
+      var count = 0;
+
+      if (!Number.isNaN(startMs) && !Number.isNaN(stopMs)) {
+        normalizedTimes.forEach(function (event) {
+          if (event.ms >= startMs && event.ms <= stopMs) {
+            count += 1;
+            matchedByIndex[event.index] = true;
+          }
+        });
+      }
+
+      return {
+        start: trip.start,
+        stop: trip.stop,
+        distanceKm: trip.distanceKm,
+        activationCount: count
+      };
+    });
+
+    var unmatchedActivationTimes = (activationTimes || []).filter(function (_, idx) {
+      return !matchedByIndex[idx];
+    });
+
+    return {
+      tripsWithActivations: tripsWithActivations,
+      unmatchedActivationTimes: unmatchedActivationTimes
+    };
   }
 
   function applySort(rows) {
@@ -695,25 +765,9 @@
         var tripSummary = await getTripsForDevice(deviceId, range.fromDate, range.toDate);
         var activationResult = activationIndex[deviceId] || { total: 0, measurementLabel: "-" };
         var activationTimes = activationResult.activationTimes || [];
-        var tripsWithActivations = tripSummary.trips.map(function (trip) {
-          var startMs = new Date(trip.start).getTime();
-          var stopMs = new Date(trip.stop).getTime();
-          var count = 0;
-          if (!Number.isNaN(startMs) && !Number.isNaN(stopMs)) {
-            activationTimes.forEach(function (time) {
-              var eventMs = new Date(time).getTime();
-              if (!Number.isNaN(eventMs) && eventMs >= startMs && eventMs <= stopMs) {
-                count += 1;
-              }
-            });
-          }
-          return {
-            start: trip.start,
-            stop: trip.stop,
-            distanceKm: trip.distanceKm,
-            activationCount: count
-          };
-        });
+        var assignment = assignActivationsToTrips(tripSummary.trips, activationTimes);
+        var tripsWithActivations = assignment.tripsWithActivations;
+        var unmatchedActivationTimes = assignment.unmatchedActivationTimes;
 
         return {
           deviceId: deviceId,
@@ -723,7 +777,8 @@
           tripCount: tripSummary.tripCount,
           totalKm: tripSummary.totalKm,
           activationCount: activationResult.total,
-          trips: tripsWithActivations
+          trips: tripsWithActivations,
+          unmatchedActivationTimes: unmatchedActivationTimes
         };
       });
 
