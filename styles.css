@@ -124,6 +124,10 @@ th {
   text-transform: uppercase;
 }
 
+.num-head {
+  text-align: right;
+}
+
 td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
