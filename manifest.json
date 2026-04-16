@@ -1,0 +1,12 @@
+﻿{
+  "name": "Reporte Toma de Fuerza",
+  "supportEmail": "soporte@example.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "index.html",
+      "path": "Productivity"
+    }
+  ],
+  "isSigned": false
+}
