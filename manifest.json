@@ -4,8 +4,13 @@
   "version": "1.0.0",
   "items": [
     {
-      "url": "index.html",
-      "path": "Productivity"
+      "url": "https://dsanchodigittecnic.github.io/geotab-tomasfuerza/index.html",
+      "path": "",
+      "menuName": {
+        "en": "Reporte Toma de Fuerza",
+        "es": "Reporte Toma de Fuerza"
+       },
+       "icon": "https://dsanchodigittecnic.github.io/geotab-odometer/icon.svg"
     }
   ],
   "isSigned": false
