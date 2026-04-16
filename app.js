@@ -18,6 +18,11 @@
 
   var els = {};
   var apiRef = null;
+  var sortState = {
+    key: "deviceName",
+    dir: "asc"
+  };
+  var lastRows = [];
 
   function getId(ref) {
     if (!ref) {
@@ -63,6 +68,7 @@
   }
 
   function renderRows(rows) {
+    updateSortHeaders();
     els.tbody.innerHTML = "";
 
     if (!rows.length) {
@@ -85,6 +91,39 @@
       ].join("");
 
       els.tbody.appendChild(tr);
+    });
+  }
+
+  function applySort(rows) {
+    var sorted = (rows || []).slice();
+    var key = sortState.key;
+    var dirMul = sortState.dir === "asc" ? 1 : -1;
+
+    sorted.sort(function (a, b) {
+      if (key === "deviceName") {
+        return dirMul * String(a.deviceName || "").localeCompare(String(b.deviceName || ""), "es", { sensitivity: "base" });
+      }
+      if (key === "tripCount") {
+        return dirMul * (Number(a.tripCount || 0) - Number(b.tripCount || 0));
+      }
+      if (key === "activationCount") {
+        return dirMul * (Number(a.activationCount || 0) - Number(b.activationCount || 0));
+      }
+      return 0;
+    });
+
+    return sorted;
+  }
+
+  function updateSortHeaders() {
+    var sortableHeaders = document.querySelectorAll("th.sortable");
+    sortableHeaders.forEach(function (th) {
+      var key = th.getAttribute("data-sort-key");
+      if (key === sortState.key) {
+        th.setAttribute("data-sort-dir", sortState.dir);
+      } else {
+        th.removeAttribute("data-sort-dir");
+      }
     });
   }
 
@@ -524,14 +563,12 @@
       rows = rows
         .filter(function (row) {
           return row.totalKm >= minKm;
-        })
-        .sort(function (a, b) {
-          return b.totalKm - a.totalKm;
         });
-
-      renderRows(rows);
-      setStatus("Resultado: " + rows.length + " unidad(es).", false);
+      lastRows = rows;
+      renderRows(applySort(lastRows));
+      setStatus("Resultado: " + lastRows.length + " unidad(es).", false);
     } catch (error) {
+      lastRows = [];
       renderRows([]);
       setStatus(error && error.message ? error.message : "Error al cargar la información.", true);
     } finally {
@@ -560,8 +597,25 @@
     els.tbody = document.getElementById("tbody");
     els.empty = document.getElementById("empty");
     els.status = document.getElementById("status");
+    els.sortableHeaders = document.querySelectorAll("th.sortable");
 
     setDefaultDates();
+
+    els.sortableHeaders.forEach(function (th) {
+      th.addEventListener("click", function () {
+        var key = th.getAttribute("data-sort-key");
+        if (!key) {
+          return;
+        }
+        if (sortState.key === key) {
+          sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+        } else {
+          sortState.key = key;
+          sortState.dir = key === "deviceName" ? "asc" : "desc";
+        }
+        renderRows(applySort(lastRows));
+      });
+    });
 
     els.refreshBtn.addEventListener("click", function () {
       loadReport();

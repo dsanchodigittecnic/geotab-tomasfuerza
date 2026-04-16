@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #f6f8fb;
   --card: #ffffff;
   --text: #1f2937;
@@ -128,6 +128,28 @@ th {
   text-align: right;
 }
 
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  margin-left: 6px;
+}
+
+.sortable[data-sort-dir="asc"]::after {
+  content: "\25B2";
+  font-size: 10px;
+}
+
+.sortable[data-sort-dir="desc"]::after {
+  content: "\25BC";
+  font-size: 10px;
+}
+
 td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -145,3 +167,4 @@ td.num {
 @media (max-width: 580px) {
   .filters { grid-template-columns: 1fr; }
 }
+
