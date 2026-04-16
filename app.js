@@ -23,6 +23,7 @@
     dir: "asc"
   };
   var lastRows = [];
+  var expandedByDeviceId = {};
 
   function getId(ref) {
     if (!ref) {
@@ -80,9 +81,11 @@
 
     rows.forEach(function (row) {
       var tr = document.createElement("tr");
+      tr.className = "main-row";
+      tr.setAttribute("data-device-id", row.deviceId || "");
 
       tr.innerHTML = [
-        "<td>" + escapeHtml(row.deviceName) + "</td>",
+        "<td class=\"device-cell\">" + escapeHtml(row.deviceName) + "</td>",
         "<td>" + escapeHtml(row.sourceLabel) + "</td>",
         "<td>" + escapeHtml(row.measurementLabel) + "</td>",
         "<td class=\"num\">" + row.tripCount + "</td>",
@@ -90,8 +93,70 @@
         "<td class=\"num\">" + row.activationCount + "</td>"
       ].join("");
 
+      tr.addEventListener("click", function () {
+        toggleExpanded(row.deviceId);
+      });
       els.tbody.appendChild(tr);
+
+      if (expandedByDeviceId[row.deviceId]) {
+        els.tbody.appendChild(createTripDetailsRow(row));
+      }
     });
+  }
+
+  function toggleExpanded(deviceId) {
+    if (!deviceId) {
+      return;
+    }
+    expandedByDeviceId[deviceId] = !expandedByDeviceId[deviceId];
+    renderRows(applySort(lastRows));
+  }
+
+  function formatDateTime(value) {
+    if (!value) {
+      return "-";
+    }
+    var date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "-";
+    }
+    return date.toLocaleString("es-ES");
+  }
+
+  function createTripDetailsRow(row) {
+    var detailTr = document.createElement("tr");
+    detailTr.className = "detail-row";
+    var detailTd = document.createElement("td");
+    detailTd.colSpan = 6;
+
+    if (!row.trips || !row.trips.length) {
+      detailTd.innerHTML = "<div class=\"detail-empty\">Sin viajes en el rango seleccionado.</div>";
+      detailTr.appendChild(detailTd);
+      return detailTr;
+    }
+
+    var lines = [];
+    lines.push("<div class=\"detail-wrap\">");
+    lines.push("<div class=\"detail-title\">Viajes de " + escapeHtml(row.deviceName) + " (" + row.trips.length + ")</div>");
+    lines.push("<table class=\"detail-table\">");
+    lines.push("<thead><tr><th>Inicio</th><th>Fin</th><th>Km</th><th>Activaciones</th></tr></thead>");
+    lines.push("<tbody>");
+
+    row.trips.forEach(function (trip) {
+      lines.push(
+        "<tr>" +
+          "<td>" + escapeHtml(formatDateTime(trip.start)) + "</td>" +
+          "<td>" + escapeHtml(formatDateTime(trip.stop)) + "</td>" +
+          "<td class=\"num\">" + Number(trip.distanceKm || 0).toFixed(1) + "</td>" +
+          "<td class=\"num\">" + Number(trip.activationCount || 0) + "</td>" +
+        "</tr>"
+      );
+    });
+
+    lines.push("</tbody></table></div>");
+    detailTd.innerHTML = lines.join("");
+    detailTr.appendChild(detailTd);
+    return detailTr;
   }
 
   function applySort(rows) {
@@ -301,10 +366,19 @@
       var distance = Number(trip.distance || 0);
       return sum + distance;
     }, 0);
+    var normalizedTrips = (trips || []).map(function (trip) {
+      return {
+        start: trip.start,
+        stop: trip.stop,
+        distanceKm: Number(trip.distance || 0),
+        activationCount: 0
+      };
+    });
 
     return {
       tripCount: (trips || []).length,
-      totalKm: totalKm
+      totalKm: totalKm,
+      trips: normalizedTrips
     };
   }
 
@@ -384,14 +458,19 @@
     });
     var prev = false;
     var count = 0;
+    var times = [];
     ordered.forEach(function (row) {
       var current = isOnValue(row.data, expectedOnValue);
       if (current && !prev) {
         count += 1;
+        times.push(row.dateTime);
       }
       prev = current;
     });
-    return count;
+    return {
+      count: count,
+      times: times
+    };
   }
 
   async function buildActivationIndex(deviceIds, measurementDefs, fromDate, toDate) {
@@ -411,6 +490,7 @@
       var measurement = measurementDefs[i];
       var diagnostics = dedupeDiagnostics(measurement.diagnostics);
       var measurementCountByDevice = {};
+      var measurementTimesByDevice = {};
 
       for (var j = 0; j < diagnostics.length; j += 1) {
         var diagnostic = diagnostics[j];
@@ -436,8 +516,12 @@
         });
 
         Object.keys(rowsByDevice).forEach(function (deviceId) {
-          var count = countActivationsInRows(rowsByDevice[deviceId], measurement.onValue);
-          measurementCountByDevice[deviceId] = (measurementCountByDevice[deviceId] || 0) + count;
+          var activationData = countActivationsInRows(rowsByDevice[deviceId], measurement.onValue);
+          measurementCountByDevice[deviceId] = (measurementCountByDevice[deviceId] || 0) + activationData.count;
+          if (!measurementTimesByDevice[deviceId]) {
+            measurementTimesByDevice[deviceId] = [];
+          }
+          measurementTimesByDevice[deviceId] = measurementTimesByDevice[deviceId].concat(activationData.times);
         });
       }
 
@@ -447,6 +531,12 @@
           label: measurement.label,
           count: count
         };
+        if (!activationIndex[deviceId].activationTimes) {
+          activationIndex[deviceId].activationTimes = [];
+        }
+        if (measurementTimesByDevice[deviceId] && measurementTimesByDevice[deviceId].length) {
+          activationIndex[deviceId].activationTimes = activationIndex[deviceId].activationTimes.concat(measurementTimesByDevice[deviceId]);
+        }
       });
     }
 
@@ -462,8 +552,12 @@
       var total = matches.reduce(function (sum, m) {
         return sum + m.count;
       }, 0);
+      var sortedTimes = (activationIndex[deviceId].activationTimes || []).slice().sort(function (a, b) {
+        return new Date(a) - new Date(b);
+      });
       activationIndex[deviceId].total = total;
       activationIndex[deviceId].measurementLabel = formatMeasurementLabel(matches);
+      activationIndex[deviceId].activationTimes = sortedTimes;
     });
 
     return activationIndex;
@@ -549,14 +643,36 @@
 
         var tripSummary = await getTripsForDevice(deviceId, range.fromDate, range.toDate);
         var activationResult = activationIndex[deviceId] || { total: 0, measurementLabel: "-" };
+        var activationTimes = activationResult.activationTimes || [];
+        var tripsWithActivations = tripSummary.trips.map(function (trip) {
+          var startMs = new Date(trip.start).getTime();
+          var stopMs = new Date(trip.stop).getTime();
+          var count = 0;
+          if (!Number.isNaN(startMs) && !Number.isNaN(stopMs)) {
+            activationTimes.forEach(function (time) {
+              var eventMs = new Date(time).getTime();
+              if (!Number.isNaN(eventMs) && eventMs >= startMs && eventMs <= stopMs) {
+                count += 1;
+              }
+            });
+          }
+          return {
+            start: trip.start,
+            stop: trip.stop,
+            distanceKm: trip.distanceKm,
+            activationCount: count
+          };
+        });
 
         return {
+          deviceId: deviceId,
           deviceName: device.name || "(sin nombre)",
           sourceLabel: sourceLabel(dType),
           measurementLabel: activationResult.measurementLabel,
           tripCount: tripSummary.tripCount,
           totalKm: tripSummary.totalKm,
-          activationCount: activationResult.total
+          activationCount: activationResult.total,
+          trips: tripsWithActivations
         };
       });
 
@@ -565,10 +681,12 @@
           return row.totalKm >= minKm;
         });
       lastRows = rows;
+      expandedByDeviceId = {};
       renderRows(applySort(lastRows));
       setStatus("Resultado: " + lastRows.length + " unidad(es).", false);
     } catch (error) {
       lastRows = [];
+      expandedByDeviceId = {};
       renderRows([]);
       setStatus(error && error.message ? error.message : "Error al cargar la información.", true);
     } finally {

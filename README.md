@@ -6,6 +6,7 @@ Este add-in muestra una tabla con:
 - Numero de viajes
 - Km total
 - Numero de activaciones
+- Despliegue de detalle de viajes (inicio, fin, km y activaciones) al hacer clic en la unidad
 
 Filtros incluidos:
 - Fecha inicio/fin
